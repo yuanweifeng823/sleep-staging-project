@@ -84,14 +84,21 @@ def create_epochs(
     for i in range(n_epochs):
         start = i * samples_per_epoch
         end = start + samples_per_epoch
-        
+
         label = hypnogram[i]
-        
+
         if not remove_invalid or label != -1:
             eeg_epochs.append(eeg[start:end])
             eog_epochs.append(eog[start:end])
             labels.append(label)
-    
+
+    if len(eeg_epochs) == 0:
+        return (
+            np.empty((0, samples_per_epoch), dtype=eeg.dtype),
+            np.empty((0, samples_per_epoch), dtype=eog.dtype),
+            np.empty((0,), dtype=int)
+        )
+
     return np.array(eeg_epochs), np.array(eog_epochs), np.array(labels)
 
 

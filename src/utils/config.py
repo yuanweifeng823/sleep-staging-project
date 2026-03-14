@@ -22,6 +22,8 @@ class TrainingConfig:
     grad_clip: Optional[float] = 1.0
     patience: int = 10
     save_freq: int = 10
+    save_dir: str = ''
+    early_stopping: bool = True
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'TrainingConfig':

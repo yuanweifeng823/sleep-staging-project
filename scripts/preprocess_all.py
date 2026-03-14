@@ -38,19 +38,23 @@ def main():
     all_data = []
     for subject_id in subjects:
         logger.info(f"Processing {subject_id}...")
-        
+
         # Load raw data
         raw_data = loader.load_subject(subject_id)
-        
+
         # Preprocess
         processed = preprocessor.process_subject(raw_data)
-        
+
+        if processed.get('n_epochs', 0) == 0:
+            logger.warning(f"Skipping {subject_id} because it has 0 valid epochs")
+            continue
+
         # Add split information
         for split_name, split_subjects in splits.items():
             if subject_id in split_subjects:
                 processed['split'] = split_name
                 break
-        
+
         all_data.append(processed)
     
     # Save processed data

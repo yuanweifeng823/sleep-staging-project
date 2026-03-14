@@ -6,12 +6,13 @@ from pathlib import Path
 import argparse
 
 # Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 import torch
 from torch.utils.data import DataLoader
 
 from src.data.dataset import SleepEDFDataset
+from src.models.memberA_1dcnn.model import MemberA1DCNN
 from src.training.trainer import BaseTrainer
 from src.utils.config import config_manager
 from src.utils.logger import setup_logger
@@ -69,33 +70,15 @@ def load_data(config):
 
 
 def create_model(config):
-    """Create the model (placeholder - implement actual model)"""
-    # This is a placeholder - you need to implement your actual model
-    # For now, we'll use a simple CNN as an example
+    """Create MemberA1DCNN model using config values"""
+    model_cfg = config.model
 
-    class Simple1DCNN(torch.nn.Module):
-        def __init__(self, config):
-            super().__init__()
-            self.conv1 = torch.nn.Conv1d(1, 64, kernel_size=5, stride=1, padding=2)
-            self.conv2 = torch.nn.Conv1d(64, 128, kernel_size=5, stride=1, padding=2)
-            self.conv3 = torch.nn.Conv1d(128, 256, kernel_size=5, stride=1, padding=2)
-            self.pool = torch.nn.MaxPool1d(2)
-            self.dropout = torch.nn.Dropout(config.model.dropout)
-            self.fc = torch.nn.Linear(256 * 150, config.model.n_classes)  # Adjust based on input size
-
-        def forward(self, x):
-            x = torch.relu(self.conv1(x))
-            x = self.pool(x)
-            x = torch.relu(self.conv2(x))
-            x = self.pool(x)
-            x = torch.relu(self.conv3(x))
-            x = self.pool(x)
-            x = x.view(x.size(0), -1)
-            x = self.dropout(x)
-            x = self.fc(x)
-            return x
-
-    return Simple1DCNN(config)
+    return MemberA1DCNN(
+        n_classes=getattr(model_cfg, 'n_classes', 5),
+        input_channels=getattr(model_cfg, 'input_channels', 1),
+        hidden_dims=tuple(getattr(model_cfg, 'hidden_dims', [64, 128, 256])),
+        dropout=getattr(model_cfg, 'dropout', 0.5)
+    )
 
 
 def main():
@@ -131,6 +114,10 @@ def main():
     model = create_model(config)
     logger.info(f"Model created with {sum(p.numel() for p in model.parameters())} parameters")
 
+    # Ensure save directory is in config
+    if not getattr(config.training, 'save_dir', None):
+        config.training.save_dir = str(paths.get_member_results_path('A'))
+
     # Create trainer
     trainer = BaseTrainer(model, config)
 
@@ -142,10 +129,8 @@ def main():
     logger.info("Starting training...")
     history = trainer.fit(train_loader, val_loader, config.training.epochs)
 
-    # Save final model
-    save_path = paths.get_member_results_path('A') / 'final_model.pth'
-    trainer.save_checkpoint(save_path)
-    logger.info(f"Final model saved to: {save_path}")
+    # Final checkpoint already saved by trainer.fit
+    logger.info(f"Final model saved to: {config.training.save_dir}/final_model.pth")
 
     logger.info("Training completed!")
 

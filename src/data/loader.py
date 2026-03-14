@@ -74,26 +74,33 @@ def load_sleep_edf(
     eog_data = raw.copy().pick_channels([eog_ch]).get_data()[0]
     sfreq = raw.info['sfreq']
     
-    # Read annotations
-    raw_hyp = mne.io.read_raw_edf(hyp_path, preload=True, verbose=False)
-    annot = raw_hyp.annotations
-    
+    # Read annotations (prefer read_annotations for hypnogram-only EDFs)
+    try:
+        annot = mne.read_annotations(str(hyp_path))
+        if len(annot) == 0:
+            raise ValueError("No annotations found via read_annotations")
+    except Exception:
+        raw_hyp = mne.io.read_raw_edf(hyp_path, preload=True, verbose=False)
+        annot = raw_hyp.annotations
+
     # Convert annotations to epoch labels
-    stage_mapping = {
-        'W': 0,
-        'N1': 1,
-        'N2': 2,
-        'N3': 3,
-        'R': 4
-    }
-    
+    def _map_stage(desc: str) -> int:
+        stage = desc.strip().upper().replace('SLEEP STAGE', '').replace('STAGE', '').strip()
+        if stage in {'W', 'WAKE'}:
+            return 0
+        if stage in {'1', 'N1'}:
+            return 1
+        if stage in {'2', 'N2'}:
+            return 2
+        if stage in {'3', '4', 'N3'}:
+            return 3
+        if stage in {'R', 'REM'}:
+            return 4
+        return -1
+
     hypnogram = []
     for desc in annot.description:
-        if desc.startswith('Sleep stage'):
-            stage = desc.replace('Sleep stage ', '')
-            hypnogram.append(stage_mapping.get(stage, -1))
-        else:
-            hypnogram.append(-1)
+        hypnogram.append(_map_stage(desc))
     
     return {
         'eeg': eeg_data,

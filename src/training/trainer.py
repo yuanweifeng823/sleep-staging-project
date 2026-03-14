@@ -10,6 +10,7 @@ from typing import Dict, Any, Optional, Callable, Union
 import json
 
 from .metrics import MetricsTracker, compute_metrics
+from ..utils.config import ExperimentConfig
 from ..utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -63,13 +64,28 @@ class BaseTrainer:
         
         # Metrics tracking
         self.metrics_tracker = MetricsTracker()
-        
+
+        # Save/checkpoint defaults
+        if hasattr(self.config, 'save_dir') and self.config.save_dir:
+            self.save_dir = Path(self.config.save_dir)
+        elif self.experiment_config is not None and hasattr(self.experiment_config, 'output_dir'):
+            self.save_dir = Path(self.experiment_config.output_dir)
+        else:
+            self.save_dir = Path('./checkpoints')
+        self.save_dir.mkdir(parents=True, exist_ok=True)
+
+        # Early stopping
+        self.early_stopping = getattr(self.config, 'early_stopping', True)
+        self.patience = getattr(self.config, 'patience', 10)
+        self.no_improve_epochs = 0
+
         # Training state
         self.current_epoch = 0
         self.best_val_loss = float('inf')
-        
+
         logger.info(f"Trainer initialized on device: {self.device}")
         logger.info(f"Model parameters: {self.model.count_parameters():,}")
+
     
     def _create_criterion(self) -> nn.Module:
         """Create loss function"""
@@ -77,8 +93,16 @@ class BaseTrainer:
     
     def _create_optimizer(self) -> torch.optim.Optimizer:
         """Create optimizer"""
-        lr = self.config.get('learning_rate', 0.001)
-        weight_decay = self.config.get('weight_decay', 0.0001)
+        # config may be ExperimentConfig or raw dict
+        if hasattr(self.config, 'learning_rate'):
+            lr = self.config.learning_rate
+        else:
+            lr = self.config.get('learning_rate', 0.001)
+
+        if hasattr(self.config, 'weight_decay'):
+            weight_decay = self.config.weight_decay
+        else:
+            weight_decay = self.config.get('weight_decay', 0.0001)
         
         return torch.optim.Adam(
             self.model.parameters(),
@@ -88,18 +112,36 @@ class BaseTrainer:
     
     def _create_scheduler(self) -> Optional[torch.optim.lr_scheduler._LRScheduler]:
         """Create learning rate scheduler"""
-        scheduler_type = self.config.get('scheduler', 'none')
+        if hasattr(self.config, 'scheduler'):
+            scheduler_type = self.config.scheduler
+        else:
+            scheduler_type = self.config.get('scheduler', 'none')
         
         if scheduler_type == 'cosine':
+            if hasattr(self.config, 'epochs'):
+                t_max = self.config.epochs
+            else:
+                t_max = self.config.get('epochs', 50)
+
             return torch.optim.lr_scheduler.CosineAnnealingLR(
                 self.optimizer,
-                T_max=self.config.get('epochs', 50)
+                T_max=t_max
             )
         elif scheduler_type == 'step':
+            if hasattr(self.config, 'step_size'):
+                step_size = self.config.step_size
+            else:
+                step_size = self.config.get('step_size', 10)
+
+            if hasattr(self.config, 'gamma'):
+                gamma = self.config.gamma
+            else:
+                gamma = self.config.get('gamma', 0.1)
+
             return torch.optim.lr_scheduler.StepLR(
                 self.optimizer,
-                step_size=self.config.get('step_size', 10),
-                gamma=self.config.get('gamma', 0.1)
+                step_size=step_size,
+                gamma=gamma
             )
         else:
             return None
@@ -131,7 +173,10 @@ class BaseTrainer:
             loss.backward()
             
             # Gradient clipping
-            clip_grad = self.config.get('grad_clip', None)
+            if hasattr(self.config, 'grad_clip'):
+                clip_grad = self.config.grad_clip
+            else:
+                clip_grad = self.config.get('grad_clip', None)
             if clip_grad:
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), clip_grad)
             
@@ -190,7 +235,7 @@ class BaseTrainer:
     ) -> Dict[str, Any]:
         """
         Main training loop
-        
+
         Args:
             train_loader: Training data loader
             val_loader: Validation data loader
@@ -200,13 +245,16 @@ class BaseTrainer:
             Training history
         """
         if epochs is None:
-            epochs = self.config.get('epochs', 50)
-        
+            if hasattr(self.config, 'epochs'):
+                epochs = self.config.epochs
+            else:
+                epochs = self.config.get('epochs', 50)
+
         logger.info(f"Starting training for {epochs} epochs")
-        
+
         for epoch in range(epochs):
             self.current_epoch = epoch
-            
+
             # Training
             start_time = time.time()
             train_metrics = self.train_epoch(train_loader)
@@ -239,7 +287,14 @@ class BaseTrainer:
             # Save best model
             if val_metrics['loss'] < self.best_val_loss:
                 self.best_val_loss = val_metrics['loss']
+                self.no_improve_epochs = 0
                 self.save_checkpoint('best_model.pth', val_metrics)
+            else:
+                self.no_improve_epochs += 1
+
+            if self.early_stopping and self.no_improve_epochs >= self.patience:
+                logger.info(f"Early stopping at epoch {epoch+1} (no improvement for {self.patience} epochs)")
+                break
         
         # Save final model
         self.save_checkpoint('final_model.pth', val_metrics)
@@ -248,7 +303,7 @@ class BaseTrainer:
     
     def save_checkpoint(self, filename: str, metrics: Dict[str, float]):
         """Save model checkpoint"""
-        save_dir = Path(self.config.get('save_dir', './checkpoints'))
+        save_dir = self.save_dir
         save_dir.mkdir(parents=True, exist_ok=True)
         
         checkpoint = {
