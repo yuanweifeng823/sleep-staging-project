@@ -1,0 +1,40 @@
+# Data
+/data/raw/*
+!/data/raw/.gitkeep
+/data/processed/*
+!/data/processed/.gitkeep
+
+# Experiments
+/experiments/*/checkpoints/
+/experiments/*/logs/
+/experiments/*/metrics/
+
+# Results
+/results/*
+!/results/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.pyc
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# Environment
+.env
+venv/
+env/
+ENV/

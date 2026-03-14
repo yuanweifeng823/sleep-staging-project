@@ -1,0 +1,30 @@
+# Default configuration for Member C (Transformer)
+name: "memberC_transformer_experiment"
+seed: 42
+device: "auto"
+log_level: "INFO"
+
+model:
+  n_classes: 5
+  input_channels: 1
+  hidden_dims: [128, 256, 512]
+  dropout: 0.1
+  activation: "gelu"
+
+training:
+  epochs: 100
+  batch_size: 8
+  learning_rate: 0.0001
+  weight_decay: 0.01
+  scheduler: "cosine"
+  grad_clip: 1.0
+  patience: 15
+  save_freq: 5
+
+data:
+  sampling_rate: 100
+  epoch_length: 30
+  overlap: 0.0
+  test_fold: 0
+  n_folds: 5
+  modalities: ["eeg"]

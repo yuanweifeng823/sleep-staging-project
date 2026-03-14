@@ -1,0 +1,30 @@
+# Default configuration for Member E (Baseline)
+name: "memberE_baseline_experiment"
+seed: 42
+device: "auto"
+log_level: "INFO"
+
+model:
+  n_classes: 5
+  input_channels: 1
+  hidden_dims: [32, 64]
+  dropout: 0.0
+  activation: "relu"
+
+training:
+  epochs: 20
+  batch_size: 64
+  learning_rate: 0.01
+  weight_decay: 0.0
+  scheduler: "none"
+  grad_clip: null
+  patience: 5
+  save_freq: 20
+
+data:
+  sampling_rate: 100
+  epoch_length: 30
+  overlap: 0.0
+  test_fold: 0
+  n_folds: 5
+  modalities: ["eeg"]
