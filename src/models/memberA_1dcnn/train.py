@@ -9,6 +9,7 @@ import argparse
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 import torch
+import numpy as np
 from torch.utils.data import DataLoader
 
 from src.data.dataset import SleepEDFDataset
@@ -22,20 +23,77 @@ from src.utils.paths import paths
 logger = setup_logger(__name__)
 
 
+def _build_augmentation_transform(config):
+    """Creates a lightweight EEG augmentation transform."""
+    noise_std = getattr(config.data, 'noise_std', 0.01)
+    noise_prob = getattr(config.data, 'noise_prob', 0.5)
+    scale_std = getattr(config.data, 'scale_std', 0.05)
+    scale_prob = getattr(config.data, 'scale_prob', 0.5)
+
+    def transform(x):
+        if torch.rand(1).item() < noise_prob:
+            x = x + torch.randn_like(x) * noise_std
+
+        if torch.rand(1).item() < scale_prob:
+            scale = 1.0 + torch.randn(1).item() * scale_std
+            x = x * scale
+
+        return x
+
+    return transform
+
+
 def load_data(config):
     """Load training and validation data"""
-    # Load processed data
-    data_path = paths.data_processed
+    data_path = Path(paths.data_processed)
 
-    # Load data arrays
-    eeg_data = torch.load(data_path / 'eeg_epochs.pt')
-    eog_data = torch.load(data_path / 'eog_epochs.pt')
-    labels = torch.load(data_path / 'labels.pt')
-    splits = torch.load(data_path / 'splits.pt')
+    # Handle both .pt and .npy outputs gracefully
+    def _load_array(name):
+        pt_path = data_path / f"{name}.pt"
+        np_path = data_path / f"{name}.npy"
+        if pt_path.exists():
+            val = torch.load(pt_path)
+            if name == 'splits':
+                return val.numpy() if isinstance(val, torch.Tensor) else np.array(val)
+            return val
+        if np_path.exists():
+            np_val = np.load(np_path, allow_pickle=True)
+            if name == 'splits':
+                return np_val
+            # for numeric arrays convert to tensor when needed
+            if np.issubdtype(np_val.dtype, np.number):
+                return torch.from_numpy(np_val)
+            return np_val
+        raise FileNotFoundError(f"No data file found for {name}: {pt_path} or {np_path}")
+
+    eeg_data = _load_array('eeg_epochs')
+    eog_data = _load_array('eog_epochs')
+    labels = _load_array('labels')
+    splits = _load_array('splits')
+
+    # Ensure splits are numpy array
+    if isinstance(splits, torch.Tensor):
+        splits = splits.numpy()
+    if isinstance(splits, np.ndarray) and splits.dtype != bool:
+        try:
+            splits = splits.astype('U')
+        except Exception:
+            splits = np.array(splits, dtype=object)
 
     # Create datasets
     train_mask = splits == 'train'
     val_mask = splits == 'val'
+
+    if isinstance(eeg_data, torch.Tensor):
+        eeg_data = eeg_data.numpy()
+    if isinstance(eog_data, torch.Tensor):
+        eog_data = eog_data.numpy()
+    if isinstance(labels, torch.Tensor):
+        labels = labels.numpy()
+
+    # Ensure mask is boolean
+    train_mask = np.array(train_mask, dtype=bool)
+    val_mask = np.array(val_mask, dtype=bool)
 
     train_dataset = SleepEDFDataset(
         eeg_data[train_mask],
@@ -50,6 +108,9 @@ def load_data(config):
         labels[val_mask],
         modality='eeg'
     )
+
+    # Data augmentation only on training split
+    train_dataset.transform = _build_augmentation_transform(config)
 
     # Create data loaders
     train_loader = DataLoader(
@@ -66,7 +127,8 @@ def load_data(config):
         num_workers=0
     )
 
-    return train_loader, val_loader
+    class_weights = train_dataset.get_class_weights()
+    return train_loader, val_loader, class_weights
 
 
 def create_model(config):
@@ -123,7 +185,11 @@ def main():
 
     # Load data
     logger.info("Loading training data...")
-    train_loader, val_loader = load_data(config)
+    train_loader, val_loader, class_weights = load_data(config)
+
+    # Use class weights to mitigate imbalance
+    device = trainer.device
+    trainer.criterion = torch.nn.CrossEntropyLoss(weight=class_weights.to(device))
 
     # Training
     logger.info("Starting training...")

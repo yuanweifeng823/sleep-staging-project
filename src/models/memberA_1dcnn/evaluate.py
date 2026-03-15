@@ -65,11 +65,24 @@ def main():
         return
 
     model_cfg = config.model
+
+    # Support both dataclass config and dict config for backward compatibility
+    if isinstance(model_cfg, dict):
+        n_classes = model_cfg.get('n_classes', 5)
+        input_channels = model_cfg.get('input_channels', 1)
+        hidden_dims = tuple(model_cfg.get('hidden_dims', [64, 128, 256]))
+        dropout = model_cfg.get('dropout', 0.5)
+    else:
+        n_classes = getattr(model_cfg, 'n_classes', 5)
+        input_channels = getattr(model_cfg, 'input_channels', 1)
+        hidden_dims = tuple(getattr(model_cfg, 'hidden_dims', [64, 128, 256]))
+        dropout = getattr(model_cfg, 'dropout', 0.5)
+
     model = MemberA1DCNN(
-        n_classes=model_cfg.get('n_classes', 5),
-        input_channels=model_cfg.get('input_channels', 1),
-        hidden_dims=tuple(model_cfg.get('hidden_dims', [64, 128, 256])),
-        dropout=model_cfg.get('dropout', 0.5)
+        n_classes=n_classes,
+        input_channels=input_channels,
+        hidden_dims=hidden_dims,
+        dropout=dropout
     )
 
     trainer = BaseTrainer(model, config)

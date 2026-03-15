@@ -8,6 +8,8 @@ import time
 import logging
 from typing import Dict, Any, Optional, Callable, Union
 import json
+import numpy as np
+import pickle
 
 from .metrics import MetricsTracker, compute_metrics
 from ..utils.config import ExperimentConfig
@@ -320,12 +322,19 @@ class BaseTrainer:
     
     def load_checkpoint(self, path: str):
         """Load model checkpoint"""
-        checkpoint = torch.load(path, map_location=self.device)
-        
+        try:
+            checkpoint = torch.load(path, map_location=self.device)
+        except (pickle.UnpicklingError, RuntimeError, AttributeError) as exc:
+            logger.warning(
+                f"Standard torch.load failed ({exc}), retrying with safe globals and weights_only=False"
+            )
+            with torch.serialization.safe_globals([np._core.multiarray.scalar]):
+                checkpoint = torch.load(path, map_location=self.device, weights_only=False)
+
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        self.current_epoch = checkpoint['epoch']
-        
+        self.current_epoch = checkpoint.get('epoch', 0)
+
         logger.info(f"Checkpoint loaded from {path}")
     
     def test(
